@@ -1,25 +1,49 @@
 #include "utils.h"
 #include <cmath>
 #include <numeric>
-#define EMBEDDING_SIZE 10
+#include <map>
+#include <string>
+#include <iostream>
+#include <algorithm>
+
+typedef std::vector<double> VS;
+typedef std::vector<std::vector<double>> VD;
+typedef std::map<std::string, std::vector<std::vector<double>>> MP;
+typedef std::pair<std::string, std::vector<std::vector<double>>> PAIR;
 
 class Word2Vec {
     private:
-        std::vector<std::vector<double>> word_vec_layer, dense_layer;
-        std::map<std::string, std::vector<std::vector<double>> cache, gradients;
+        VD word_vec_layer, dense_layer;
+        MP cache, gradients;
 
     public:
         Word2Vec(int vocab_size, int embedding_size) {
-            word_vec_layer.resize(vocab_size, std::vector<double>(embedding_size, 0.01));
-            dense_layer.resize(vocab_size, std::vector<double>(embedding_size, 0.01));
+            word_vec_layer.resize(vocab_size, VS(embedding_size, 0.01));
+            dense_layer.resize(vocab_size, VS(embedding_size, 0.01));
+        }
+
+        template <class T>
+        T get_map_key(MP map_obj, std::string key) {
+            auto itr = map_obj.find(key);
+            T result;
+            if(itr != map_obj.end()) result = itr->second;
+            return result;
+        }
+
+        template <typename T>
+        std::vector<std::vector<T>> slice(std::vector<std::vector<T>> input, std::vector<int> indices) {
+            std::vector<std::vector<T>> result;
+            for(int i=0; i<indices.size(); i++) result.push_back(input[indices[i]]);
+            return result;
         }
 
         // Softmax
-        std::vector<std::vector<double>> softmax(std::vector<std::vector<double>> inp) {
-            std::vector<std::vector<double>> sotmax_out(inp.size(), std::vector<double>(inp[0].size(), 0.0));
+        VD softmax(VD inp) {
+            VD softmax_out(inp.size(), VS(inp[0].size(), 0.0));
             for(int i=0; i<inp.size(); i++) {
-                double *max_x = std::max_element(inp[i].begin(), inp[i].end());
-                double total_sum = std::accumulate(inp[i].begin(). inp[i].end(), 0.0);
+                std::vector<double>::iterator max_x = std::max_element(inp[i].begin(), inp[i].end());
+                double total_sum = 0.0;
+                for(auto value: inp[i]) total_sum += exp(value) - *max_x;
                 for(int j=0; j<inp[i].size(); j++) {
                     softmax_out[i][j] = exp(inp[i][j] - *max_x) * 1.0 / total_sum;
                 }
@@ -27,109 +51,116 @@ class Word2Vec {
             return softmax_out;
         }
 
-        // Forward propogation
-        void forward(int first_index, int last_index) {
+        // Forward propagation
+        VD forward(std::vector<int> X) {
             // K * M ( where K = last_index - first_index, M = embedding size )
-            std::vector<std::vector<double>> word_vec(&word_vec_layer[first_index], &word_vec_layer[last_index]); 
-    
+            VD word_vec = slice(word_vec_layer, X);
+            cache.insert(PAIR("word_vec", word_vec));
+
             // N * K ( where N = size of window )
-            std::vector<std::vector<double>> z = matmul<double>(dense_layer, transpose<double>(word_vec));
-            cache["z"] = z;
-            
+            VD z = matmul<double>(dense_layer, transpose<double>(word_vec));
+            cache.insert(PAIR("z", z));
             // N * K
-            std::vector<std::vector<double>> softmax_out = softmax(z);
-            cache["softmax_out"] = softmax_out;    
+            VD softmax_out = softmax(z);
+            cache.insert(PAIR("softmax_out", softmax_out));
+
+            return softmax_out;
         }
- 
-
-
 
         // Softmax backward
-        std::vector<std::vector<double>> softmax_backward(std::vector<std::vector<double>> softmax_out, std::vector<std::vector<double>> Y) {
-            std::vector<std::vector<double>> result(softmax_out.size(), std::vector<softmax_out[0].size(), 0.0);
+        VD softmax_backward(VD softmax_out, VD Y) {
+            VD result(softmax_out.size(), VS(softmax_out[0].size(), 0.0));
             for(int i=0; i<softmax_out.size(); i++) {
                 for(int j=0; j<softmax_out[i].size(); j++) {
-                    result[i][j] = softmax_out[i][j] - y[i][j];
+                    result[i][j] = softmax_out[i][j] - Y[i][j];
                 }
             }
             return result;
         }
         
         // dense layer backward
-        std::tuple<std::vector<std::vector<double>>, std::vector<std::vector<double>>> dense_backward(std::vector<std::vector<double>> dl_dz) {
-            std::vector<std::vector<double>> dl_dense;
-            std::vector<std::vector<double>> dl_word_vec;
+        std::tuple<VD, VD> dense_backward(VD dl_dz) {
+            VD dl_dense, dl_word_vec;
+            VD word_vec = get_map_key<VD>(cache, "word_vec");
 
             // Let's try this without 1 / m 
-            dl_dense = matmul<double>(dl_dz, transpose<double>(word_vec));
+            dl_dense = matmul<double>(dl_dz, word_vec);
+
             dl_word_vec = matmul<double>(transpose<double>(dense_layer), dl_dz);
-            
-            assert(shape(dense) == shape(dl_dense));
-            assert(shape(word_vec) == shape(dl_word_vec));
 
             return { dl_dense, dl_word_vec };
         }
 
-
         // Backward Propogation
-        void backward(std::vector<std::vector<int>> Y_batch) {
-            std::vector<std::vector<double>> dl_dz = softmax_backward(cache['softmax_out'], Y_batch);
-            
-            std::vector<std::vector<double>> dl_dense;
-            std::vector<std::vector<double>> dl_word_vec;
+        void backward(VD Y_batch) {
+            VD dl_dz = softmax_backward(get_map_key<VD>(cache, "softmax_out"), Y_batch);
+
+            VD dl_dense;
+            VD dl_word_vec;
             tie(dl_dense, dl_word_vec) = dense_backward(dl_dz);
 
-            gradients["dl_dz"] = dl_dz;
-            gradients["dl_dense"] = dl_dense;
-            gradients["dl_word_vec"] = dl_word_vec;
+            gradients.insert(PAIR("dl_dz", dl_dz));
+            gradients.insert(PAIR("dl_dense", dl_dense));
+            gradients.insert(PAIR("dl_word_vec", dl_word_vec));
         }
 
+        VS subtract_single(VS A, VS B) {
+            VS result;
+            for(int i=0; i<A.size(); i++) result.push_back(A[i] - B[i]);
+            return result;
+        }
+
+        void word_vec_layer_gradient(std::vector<int> X, VD dl_word_vec, double learning_rate) {
+            for(int word_index=0; word_index<X.size(); word_index++) {
+                VS result;
+                for(double value: dl_word_vec[X[word_index]]) result.push_back(value * learning_rate);
+                word_vec_layer[X[word_index]] = subtract_single(word_vec_layer[X[word_index]], result);
+            }
+        }
 
         // Updating the parameters
-        void update_parameters(int first_index, int last_index, double learning_rate) {
+        void update_parameters(std::vector<int> X, double learning_rate) {
             // Update the word embedding layer
-            for(int index = first_index; index < last_index; index++) {
-                word_vec_layer[index] = subtract<double>(word_vec_layer[index], multiply_matrix_with_scalar<T>(transpose<double>(gradients["dl_word_vec"][index]), learning_rate));
-            }
+            VD dl_word_vec = get_map_key<VD>(gradients, "dl_word_vec");
+            word_vec_layer_gradient(X, transpose<double>(dl_word_vec), learning_rate);
             // Update the dense layer
-            dense_layer = subtract<double>(dense_layer, multiply_matrix_with_scalar<double>(gradients["dl_dense"], learning_rate));
+            VD dl_dense = get_map_key<VD>(gradients, "dl_dense");
+            dense_layer = subtract<double>(dense_layer, multiply_matrix_with_scalar<double>(dl_dense, learning_rate));
         }
 
         // Cross Entropy
-        double cross_entropy(std::vector<std::vector<double>> softmax_out, std::vector<std::vector<double>> y) {
+        double cross_entropy(VD softmax_out, VD y) {
             double cost = 0.0;
             for(int i=0; i<softmax_out.size(); i++) {
                 for(int j=0; j<softmax_out[i].size(); j++) {
-                    cost += y[i][j] * log(softmax_out[i][j] + 0.001);
+                    cost += y[i][j] * log(softmax_out[i][j] + 0.0001);
                 }
             }
-            return - (1.0 / softmax_out.size()) * cost;
+            return - (1.0 / softmax_out[0].size()) * cost;
         }
 
         // training
-        void skipgram_training(std::vector<int> X,  std::vector<int> Y, double learning_rate, int epochs, int batch_size) {
+        void skipgram_training(std::vector<int> X,  VD Y, double learning_rate, int epochs, int batch_size) {
             for(int epoch = 0; epoch < epochs; epoch++) {
                 double epoch_cost = 0.0;
-                std::vector<pair<int, int>> batch_indices;
-                for(int index = 0; index < X.size(); index = index + batch_size) {
-                    int first_index = index, last_index = index + batch_size;
-
-                    // Forward Propogation
-                    forward(first_index, last_index);
-
-                    // Backward 
-                    std::vector<std::vector<int>> Y_batch(&X[first_index], &X[last_index]);
+                int index = 0;
+                while(index < X.size()) {
+                    int first_index = index, last_index = std::min((int) X.size(), index + batch_size);
+                    std::vector<int> X_batch(&X[first_index], &X[last_index]);
+                    // Forward propagation
+                    VD softmax_out = forward(X_batch);
+                    // Backward
+                    VD Y_batch = transpose<double>(slice(transpose<double>(Y), X_batch));
                     backward(Y_batch);
-
                     // Updating the parameters
-                    update_parameters(first_index, last_index, learning_rate);
-
+                    update_parameters(X_batch, learning_rate);
                     // Cross Entropy calculation
-                    epoch_cost += cross_entropy();
+                    epoch_cost += cross_entropy(softmax_out, Y_batch);
+                    index = index + batch_size;
                 }
                 if(epoch % 100 == 0) {
                     std::cout << "loss after " << epoch << " epochs: " << epoch_cost << std::endl;
                 }
             }
         }
-}
+};
