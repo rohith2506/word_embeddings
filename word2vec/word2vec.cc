@@ -12,7 +12,7 @@ int main(int argc, char *argv[]) {
 
     tie(vocab_size, X, Y) = c->get_train_x_and_y();
 
-    int embedding_size = 50, epochs = 5000, batch_size = 12;
+    int embedding_size = 50, epochs = 5000, batch_size = 128;
     double learning_rate = 0.05;
 
     // Train the model
