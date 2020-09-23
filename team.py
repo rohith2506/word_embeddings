@@ -20,7 +20,8 @@ access_token='eyJ0eXAiOiAiVENWMiJ9.Q0hLRHFCYkQ0UWJpRjJqUDRKX1JIU3NzXzN3.Y2E4M2Vl
 # # url = 'http://teamcity:8111/app/rest/vcs-roots/id:RdxCode_GerritPendingChanges'
 # # url='http://teamcity:8111/app/rest/changes?locator=buildType:(id:RdxCode_GerritPendingCi),pending:true'
 
-url = 'http://localhost:8111/app/rest/buildQueue'
+url = 'http://localhost:8111/app/rest/buildQueue/id:703'
+# url = 'http://localhost:8111/app/rest/changes?locator=build:(id:703)'
 headers = {'Authorization' : 'Bearer ' + access_token}
 response = requests.get(url, headers=headers)
 
